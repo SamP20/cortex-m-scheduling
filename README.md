@@ -37,3 +37,7 @@ The current scheduler is extremely simple. It loops through all threads calling 
 `switch_to` will only perform the switch if the thread is pending (use `force_switch_to` if you want to
 force it). Afterwards it will check if any threads are pending, and if not it will put the processor to
 sleep.
+
+# The Mutex
+
+TODO: Explain how the mutex works
