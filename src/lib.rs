@@ -9,7 +9,16 @@ mod mutex;
 #[allow(unused_imports)]
 use cortex_m_rt;
 
-pub use thread::{Thread, yieldk};
+pub use thread::{
+    Thread,
+    ThreadCreateError,
+    SwitchReason,
+    ThreadID,
+    get_current_thread,
+    threads_waiting,
+    yieldk
+};
+
 pub use thread_list::ThreadList;
-pub use scheduler::{run_threads, get_current_thread, wakeup_thread, wakeup_threads};
+pub use scheduler::run_threads;
 pub use mutex::{Mutex, MutexGuard};

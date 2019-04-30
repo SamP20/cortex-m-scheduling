@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use super::{ThreadList, get_current_thread, wakeup_threads, yieldk};
+use super::{ThreadList, get_current_thread, yieldk};
 
 pub struct Mutex<T: ?Sized> {
     locked: AtomicBool,
@@ -66,6 +66,6 @@ impl<T: ?Sized> Drop for MutexGuard<'_, T> {
         // If wakeup_threads gets reordered before the store then we may
         // get spurious wakeups. The Mutex handles this by spin_waiting
         // for the lock and re-scheduling the wakeup.
-        wakeup_threads(self.lock.waiting_threads.get_all());
+        self.lock.waiting_threads.schedule_all();
     }
 }

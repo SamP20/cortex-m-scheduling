@@ -14,7 +14,7 @@ use cortex_m::peripheral::{NVIC, syst::SystClkSource};
 use cortex_m_rt::{entry, exception};
 use core::sync::atomic::{AtomicU8, Ordering};
 
-use cortexm_scheduling::{run_threads, get_current_thread, wakeup_thread, yieldk, Thread};
+use cortexm_scheduling::{run_threads, get_current_thread, yieldk, Thread, ThreadID};
 use nrf52832_hal::{
     target,
     gpio::{
@@ -54,7 +54,7 @@ fn main() -> ! {
 
     let mut stack = [0xDEADBEEF; 1024];
     let thread = Thread::new(&mut stack, move || {
-        WAITING_THREAD.store(get_current_thread(), Ordering::Release);
+        WAITING_THREAD.store(get_current_thread().raw(), Ordering::Release);
 
         loop {
             if led1.is_set_high() {
@@ -64,7 +64,7 @@ fn main() -> ! {
             }
             yieldk();
         }
-    });
+    }).unwrap();
 
     run_threads(&mut [thread]);
 }
@@ -74,6 +74,6 @@ fn main() -> ! {
 fn SysTick() {
     match WAITING_THREAD.load(Ordering::Acquire) {
         0xff => (),
-        n => wakeup_thread(n)
+        n => unsafe { ThreadID::new(n).schedule() }
     }
 }
