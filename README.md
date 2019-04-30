@@ -7,7 +7,7 @@ whether that be round robin, or your own custom implementation.
 
 This library also provides a Mutex synchronisation type which allows two or more threads to take
 an immutable reference to a Mutex<T> and then lock it for the duration required. This type also
-informs the scheduler when waiting threads can try to lock again.
+schedules any waiting thread when it becomes unlocked.
 
 
 # The Thread type
