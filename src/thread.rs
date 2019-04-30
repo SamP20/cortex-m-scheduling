@@ -1,75 +1,39 @@
-#![no_std]
-#![no_main]
-#![feature(naked_functions, never_type, asm)]
+use core::{mem, ptr};
 
-extern crate nrf52832_pac;
-extern crate cortex_m_semihosting;
+/// This is used in the syscall handler. When set to 1 this means the
+/// svc_handler was called. Marked `pub` because it is used in the cortex-m*
+/// specific handler.
+#[no_mangle]
+#[used]
+static mut SYSCALL_FIRED: usize = 0;
 
-// pick a panicking behavior
-// extern crate panic_halt; // you can put a breakpoint on `rust_begin_unwind` to catch panics
-// extern crate panic_abort; // requires nightly
-// extern crate panic_itm; // logs messages over ITM; requires ITM support
-extern crate panic_semihosting; // logs messages to the host stderr; requires a debugger
-use cortex_m_semihosting::{hprintln, hprint};
-use cortex_m::peripheral::{NVIC, syst::SystClkSource};
-use cortex_m_rt::{entry, exception};
+/// This is called in the hard fault handler. When set to 1 this means the hard
+/// fault handler was called. Marked `pub` because it is used in the cortex-m*
+/// specific handler.
+///
+/// n.b. If the kernel hard faults, it immediately panic's. This flag is only
+/// for handling application hard faults.
+#[no_mangle]
+#[used]
+static mut THREAD_HARD_FAULT: usize = 0;
 
-use core::{mem, ptr, slice};
-
-#[entry]
-fn main() -> ! {
-    let _ = hprintln!("started!").unwrap();
-
-    let _cp = cortex_m::Peripherals::take().unwrap();
-
-    // // configures the system timer to trigger a SysTick exception every second
-    // syst.set_clock_source(SystClkSource::Core);
-    // // tick every 1 second
-    // syst.set_reload(16_777_215);
-    // //nvic.enable(Exc::SYS_TICK);
-
-    // syst.clear_current();
-    // syst.enable_counter();
-    // syst.enable_interrupt();
-
-    let t = Test {
-        num1: 0x1122_3344_5566_7788,
-        num2: 69,
-        msg: "Hello world",
-    };
-
-    let mut stack = [0xDEADBEEF; 1024];
-    let mut task = Task::new(&mut stack, move || {
-        let _ = hprint!(t.msg); // TODO: Find out why hprintln breaks with "{:?}"
-    });
-
-    task.switch_to();
-
-    let _ = hprintln!("And we're back!").unwrap();
-
-    loop {
-        
-    }
+pub enum SwitchReason {
+    Yield,
+    Fault,
+    Finished,
+    Unknown
 }
 
 
-#[derive(Debug)]
-struct Test {
-    num1: u64,
-    num2: u32,
-    msg: &'static str,
-}
-
-
-struct Task<'a> {
-    stack: &'a mut [usize],
-    task_regs: [usize; 8],
+pub struct Thread<'a> {
+    _stack: &'a mut [usize],
+    thread_regs: [usize; 8],
     sp: *const usize,
 }
 
-impl<'a> Task<'a> {
-    fn new<F>(stack: &'a mut [usize], func: F) -> Self
-        where F: FnOnce()
+impl<'a> Thread<'a> {
+    pub fn new<F>(stack: &'a mut [usize], func: F) -> Self
+        where F: FnOnce() + 'a + Send
     {
         let mut top = stack.len();
 
@@ -93,7 +57,7 @@ impl<'a> Task<'a> {
 
         stack[top - 1] = 1 << 24; // xPSR
         stack[top - 2] = run_closure::<F> as usize;
-        stack[top - 3] = 0xFFFFFFFD; // LR
+        stack[top - 3] = thread_end as usize; // LR
         stack[top - 4] = 0xCCCCCCCC; // R12
         stack[top - 5] = 0x33333333; // R3
         stack[top - 6] = 0x22222222; // R2
@@ -106,7 +70,7 @@ impl<'a> Task<'a> {
             ptr::copy_nonoverlapping(data_ptr, sp, dsize);
         }
 
-        let task_regs = [
+        let thread_regs = [
             0x77777777, // R7
             0x66666666, // R6
             0x55555555, // R5
@@ -119,26 +83,62 @@ impl<'a> Task<'a> {
 
         core::mem::forget(func);
 
-        Task { stack, task_regs, sp }
+        Self { _stack: stack, thread_regs, sp }
     }
 
-    fn switch_to(&mut self) {
+    pub fn switch_to(&mut self) -> SwitchReason {
         unsafe {
-            self.sp = switch_to_task(self.sp, &mut self.task_regs);
+            self.sp = switch_to_thread(self.sp, &mut self.thread_regs);
+
+            let syscall_fired = ptr::read_volatile(&SYSCALL_FIRED);
+            ptr::write_volatile(&mut SYSCALL_FIRED, 0);
+
+            let thread_fault = ptr::read_volatile(&THREAD_HARD_FAULT);
+            ptr::write_volatile(&mut THREAD_HARD_FAULT, 0);
+
+            if thread_fault  == 1 {
+                SwitchReason::Fault
+            } else if syscall_fired == 1 {
+                let result = get_syscall(self.sp);
+
+                match result.nr {
+                    0 => SwitchReason::Yield,
+                    1 => SwitchReason::Finished,
+                    _ => SwitchReason::Unknown
+                }
+
+            } else {
+                SwitchReason::Unknown
+            }
         }
     }
 }
 
 // Thin shim to force aapcs calling convention
-extern "aapcs" fn run_closure<F>(f: F)  where F: FnOnce() {
+extern "aapcs" fn run_closure<F>(f: F)
+    where F: FnOnce() {
     f();
-    yieldk();
 }
 
+// Naked because there is no stack remaining when this gets called and we don't
+// want to risk stack underflow caused by auto generated instructions.
+#[naked]
+extern "aapcs" fn thread_end() {
+    unsafe {
+        loop {
+            asm!(
+                "svc 1"
+                :
+                :
+                : "memory", "r0", "r1", "r2", "r3", "r12", "lr"
+                : "volatile");
+        }
+    }
+}
 
 #[naked]
 #[no_mangle]
-pub unsafe extern "C" fn SVCall() {
+unsafe extern "C" fn SVCall() {
     asm!("
     cmp lr, #0xfffffff9
     bne to_kernel
@@ -149,6 +149,10 @@ pub unsafe extern "C" fn SVCall() {
     bx lr
 
   to_kernel:
+    ldr r0, =SYSCALL_FIRED
+    mov r1, #1
+    str r1, [r0, #0]
+
     /* TODO: Set thread mode to privileged */
     movw LR, #0xFFF9
     movt LR, #0xFFFF
@@ -157,7 +161,7 @@ pub unsafe extern "C" fn SVCall() {
 }
 
 
-pub unsafe extern "C" fn switch_to_task(mut task_stack: *const usize, process_regs: &mut [usize; 8]) -> *const usize {
+unsafe extern "C" fn switch_to_thread(mut thread_stack: *const usize, process_regs: &mut [usize; 8]) -> *const usize {
     asm!("
     /* Load bottom of stack into Process Stack Pointer */
     msr psp, $0
@@ -170,10 +174,10 @@ pub unsafe extern "C" fn switch_to_task(mut task_stack: *const usize, process_re
     /* regs field */
     stmia $2, {r4-r11}
     mrs $0, PSP /* PSP into r0 */"
-    : "={r0}"(task_stack)
-    : "{r0}"(task_stack), "{r1}"(process_regs)
+    : "={r0}"(thread_stack)
+    : "{r0}"(thread_stack), "{r1}"(process_regs)
     : "r4","r5","r6","r7","r8","r9","r10","r11" : "volatile" );
-    task_stack
+    thread_stack
 }
 
 pub fn yieldk() {
@@ -207,4 +211,24 @@ pub fn yieldk() {
             : "memory", "r0", "r1", "r2", "r3", "r12", "lr"
             : "volatile");
     }
+}
+
+struct SyscallResult {
+    nr: u8,
+    regs: [usize; 4]
+}
+
+unsafe fn get_syscall(stack_pointer: *const usize) -> SyscallResult {
+    let mut result = SyscallResult{ nr: 0, regs: [0; 4] };
+    ptr::copy_nonoverlapping(stack_pointer, result.regs.as_mut_ptr(), 4);
+    let pcptr = ptr::read_volatile((stack_pointer as *const *const u16).offset(6));
+    let svc_instr = ptr::read_volatile(pcptr.offset(-1));
+    result.nr = (svc_instr & 0xff) as u8;
+
+    result
+}
+
+#[allow(dead_code)]
+unsafe fn set_syscall_return_value(stack_pointer: *mut usize, return_value: usize) {
+    ptr::write_volatile(stack_pointer, return_value);
 }

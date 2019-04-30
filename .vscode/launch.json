@@ -8,8 +8,8 @@
             "name": "nRF52-dk - GDB",
             "type": "gdb",
             "request": "launch",
-            "cwd": "${workspaceRoot}",
-            "target": "${workspaceRoot}/target/thumbv7em-none-eabihf/debug/nrf52-scheduling", 
+            "cwd": "${workspaceRoot}/examples/nrf52832",
+            "target": "${workspaceRoot}/examples/nrf52832/target/thumbv7em-none-eabihf/debug/nrf52832", 
             "gdbpath" : "arm-none-eabi-gdb",
             "autorun": [
                 "target remote :2331",
@@ -19,8 +19,6 @@
                 "monitor semihosting IOClient 2",
                 "load",
                 "monitor reset", // This is important for interrupts to work properly. It took me forever to find this out!
-                "break main",
-                "continue"
             ]
         }
     ]
