@@ -27,7 +27,7 @@ the `func` as if it were an interrupted "C" (more specifically [aapcs]) function
 is resumed, the r0-r3 registers will be popped from the stack, and this will magically behave as if you
 called the function directly!
 
-[aaps]: http://infocenter.arm.com/help/topic/com.arm.doc.ihi0042f/IHI0042F_aapcs.pdf
+[aapcs]: http://infocenter.arm.com/help/topic/com.arm.doc.ihi0042f/IHI0042F_aapcs.pdf
 
 There are also methods for getting the current `ThreadID` which can be used to schedule the thread.
 
