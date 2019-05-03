@@ -190,13 +190,12 @@ impl<'a> Thread<'a> {
     pub fn get_id(&self) -> ThreadID {
         self.id
     }
-}
 
-
-/// Gets the currently running thread.
-#[inline]
-pub fn get_current_thread() -> ThreadID {
-    unsafe { ThreadID::new(CURRENT_THREAD.load(Ordering::Acquire)) }
+    /// Gets the currently running thread.
+    #[inline]
+    pub fn get_current() -> ThreadID {
+        unsafe { ThreadID::new(CURRENT_THREAD.load(Ordering::Acquire)) }
+    }
 }
 
 

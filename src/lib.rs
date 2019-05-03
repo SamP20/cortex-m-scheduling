@@ -14,7 +14,6 @@ pub use thread::{
     ThreadCreateError,
     SwitchReason,
     ThreadID,
-    get_current_thread,
     threads_waiting,
     yieldk
 };

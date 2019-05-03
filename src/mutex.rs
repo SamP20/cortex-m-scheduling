@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::cell::UnsafeCell;
 use core::ops::{Deref, DerefMut};
-use super::{ThreadList, get_current_thread, yieldk};
+use super::{ThreadList, Thread, yieldk};
 
 pub struct Mutex<T: ?Sized> {
     locked: AtomicBool,
@@ -29,7 +29,7 @@ impl<T> Mutex<T> {
 impl<T: ?Sized> Mutex<T> {
     pub fn lock(&self) -> MutexGuard<T> {
         while self.locked.compare_and_swap(false, true, Ordering::Acquire) == false {
-            self.waiting_threads.add(get_current_thread());
+            self.waiting_threads.add(Thread::get_current());
             yieldk();
         }
         MutexGuard { lock: &self }
